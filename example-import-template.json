@@ -1,0 +1,50 @@
+[
+  {
+    "name": "Production Web Server",
+    "host": "192.168.1.100",
+    "port": 22,
+    "username": "root",
+    "password": "secure-password-123",
+    "pem_key": ""
+  },
+  {
+    "name": "AWS EC2 Instance",
+    "host": "ec2-54-123-45-67.compute-1.amazonaws.com",
+    "port": 22,
+    "username": "ec2-user",
+    "password": "",
+    "pem_key": "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA1234567890abcdefghijklmnopqrstuvwxyz...\n(your full PEM key here)\n-----END RSA PRIVATE KEY-----"
+  },
+  {
+    "name": "Database Server",
+    "host": "db.example.com",
+    "port": 22,
+    "username": "admin",
+    "password": "db-admin-pass",
+    "pem_key": ""
+  },
+  {
+    "name": "Development Server with PEM",
+    "host": "dev.mycompany.com",
+    "port": 2222,
+    "username": "developer",
+    "password": "",
+    "pem_key": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAABlwAAAAdzc2gtcn\n(paste your complete key here - this is just an example)\n-----END OPENSSH PRIVATE KEY-----"
+  },
+  {
+    "name": "Staging Environment",
+    "host": "staging.example.com",
+    "port": 22,
+    "username": "deploy",
+    "password": "staging123",
+    "pem_key": ""
+  },
+  {
+    "name": "Backup Server",
+    "host": "10.0.0.50",
+    "port": 22,
+    "username": "backup",
+    "password": "",
+    "pem_key": ""
+  }
+]
