@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# SSH Manager Build Script
-# This script builds the SSH manager application
+# Termius From Walmart Build Script
+# This script builds the termius-from-walmart application
 
 set -e
 
 echo "================================"
-echo "SSH Manager Build Script"
+echo "Termius From Walmart Build Script"
 echo "================================"
 echo ""
 
@@ -55,7 +55,7 @@ echo ""
 
 # Build the application
 echo "Building termius-from-walmart..."
-go build -o termius-from-walmart main.go
+go build -o termius-from-walmart
 
 if [ $? -eq 0 ]; then
     echo ""

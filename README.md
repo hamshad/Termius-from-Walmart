@@ -1,4 +1,4 @@
-# SSH Connection Manager
+# Termius from Walmart (SSH Connection Manager)
 
 A terminal-based SSH connection manager written in Go, similar to Termius. Manage your SSH servers with an intuitive TUI interface.
 

@@ -527,6 +527,37 @@ func normalizePemKey(pem string) string {
 	// Remove surrounding quotes if pasted with them
 	clean = strings.Trim(clean, "\"")
 
+	// If the key is on a single line, re-wrap it into a proper PEM block
+	if strings.Contains(clean, "-----BEGIN") && strings.Contains(clean, "-----END") && !strings.Contains(clean, "\n") {
+		beginIdx := strings.Index(clean, "-----BEGIN")
+		endIdx := strings.Index(clean, "-----END")
+		if beginIdx >= 0 && endIdx > beginIdx {
+			// Find the closing dashes that end the BEGIN header (e.g. '-----BEGIN RSA PRIVATE KEY-----')
+			headerCloseRel := strings.Index(clean[beginIdx+len("-----BEGIN"):], "-----")
+			if headerCloseRel >= 0 {
+				headerEnd := beginIdx + len("-----BEGIN") + headerCloseRel + len("-----")
+				header := clean[beginIdx:headerEnd]
+				footer := clean[endIdx:]
+				body := strings.TrimSpace(clean[headerEnd:endIdx])
+				// Remove whitespace characters inside the body only
+				body = strings.ReplaceAll(body, " ", "")
+				body = strings.ReplaceAll(body, "\t", "")
+				body = strings.ReplaceAll(body, "\r", "")
+				body = strings.ReplaceAll(body, "\n", "")
+				// Wrap body at 64 chars per line
+				var wrapped []string
+				for i := 0; i < len(body); i += 64 {
+					end := i + 64
+					if end > len(body) {
+						end = len(body)
+					}
+					wrapped = append(wrapped, body[i:end])
+				}
+				clean = header + "\n" + strings.Join(wrapped, "\n") + "\n" + footer
+			}
+		}
+	}
+
 	// Ensure trailing newline for OpenSSH parser compatibility
 	if clean != "" && !strings.HasSuffix(clean, "\n") {
 		clean += "\n"
