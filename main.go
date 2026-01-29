@@ -738,6 +738,15 @@ func (m *model) loadFileList() {
 		return
 	}
 
+	// debug log
+	if f, err := os.OpenFile("/tmp/filepicker-debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600); err == nil {
+		fmt.Fprintf(f, "-- loadFileList: path=%s showHidden=%v entries=%d\n", m.filePickerPath, m.filePickerShowHidden, len(entries))
+		for _, e := range entries {
+			fmt.Fprintf(f, "  entry: name=%s isdir=%v\n", e.Name(), e.IsDir())
+		}
+		f.Close()
+	}
+
 	items := make([]list.Item, 0, len(entries)+1)
 	// Parent dir
 	if parent := filepath.Dir(m.filePickerPath); parent != m.filePickerPath {
@@ -759,6 +768,11 @@ func (m *model) loadFileList() {
 	// reuse existing filePickerList to preserve size and other settings
 	m.filePickerList.SetItems(items)
 	m.filePickerList.Title = fmt.Sprintf("Select file (%s)", m.filePickerMode)
+
+	if f, err := os.OpenFile("/tmp/filepicker-debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600); err == nil {
+		fmt.Fprintf(f, "  items_loaded=%d\n", len(items))
+		f.Close()
+	}
 }
 
 func (m model) updateFilePickerView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
