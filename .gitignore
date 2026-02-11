@@ -36,3 +36,5 @@ config.json
 # Build artifacts
 dist/
 build/
+
+*.md
