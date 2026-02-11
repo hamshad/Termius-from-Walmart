@@ -26,6 +26,7 @@ type Server struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
 	PemKey   string `json:"pem_key"` // PEM private key as text
+	SFTPPort int    `json:"sftp_port"` // SFTP port (usually same as SSH port)
 }
 
 // Config holds all servers and keychains
@@ -49,6 +50,8 @@ const (
 	menuView
 	pemEditView
 	filePickerView
+	sftpView
+	sftpFilePickerView
 )
 
 type model struct {
@@ -70,6 +73,17 @@ type model struct {
 	filePickerInput      textinput.Model
 	filePickerPrompt     bool // whether we're typing a filename for export
 	filePickerShowHidden bool // whether to show dotfiles
+	// SFTP split-screen fields
+	selectedServer       *Server
+	sftpManager          *SFTPManager
+	localFileList        list.Model
+	remoteFileList       list.Model
+	localPath            string
+	remotePath           string
+	focusPane            string // "local" or "remote"
+	transferProgress     int    // 0-100
+	isTransferring       bool
+	transferMessage      string
 }
 
 var (
@@ -127,11 +141,30 @@ func initialModel() model {
 			return l
 		}(),
 		filePickerShowHidden: false,
+		// create local file list
+		localFileList: func() list.Model {
+			l := list.New([]list.Item{}, fileDelegate{}, 0, 0)
+			l.SetShowStatusBar(false)
+			l.SetFilteringEnabled(false)
+			return l
+		}(),
+		// create remote file list
+		remoteFileList: func() list.Model {
+			l := list.New([]list.Item{}, fileDelegate{}, 0, 0)
+			l.SetShowStatusBar(false)
+			l.SetFilteringEnabled(false)
+			return l
+		}(),
+		localPath:    os.Getenv("HOME"),
+		remotePath:   "/",
+		focusPane:    "local",
+		transferProgress: 0,
+		isTransferring:   false,
 	}
 }
 
 func (m *model) initInputs() {
-	m.inputs = make([]textinput.Model, 6)
+	m.inputs = make([]textinput.Model, 7)
 
 	// Name
 	m.inputs[0] = textinput.New()
@@ -178,6 +211,13 @@ func (m *model) initInputs() {
 	m.inputs[5].Width = 40
 	m.inputs[5].Prompt = "PEM:  "
 
+	// SFTP Port
+	m.inputs[6] = textinput.New()
+	m.inputs[6].Placeholder = "22 (same as SSH port)"
+	m.inputs[6].CharLimit = 5
+	m.inputs[6].Width = 40
+	m.inputs[6].Prompt = "SFTP: "
+
 	m.focusIndex = 0
 }
 
@@ -188,6 +228,11 @@ func (m *model) populateInputsForEdit(server Server) {
 	m.inputs[3].SetValue(server.Username)
 	m.inputs[4].SetValue(server.Password)
 	m.inputs[5].SetValue(server.PemKey)
+	if server.SFTPPort == 0 {
+		m.inputs[6].SetValue(strconv.Itoa(server.Port))
+	} else {
+		m.inputs[6].SetValue(strconv.Itoa(server.SFTPPort))
+	}
 }
 
 func (m model) Init() tea.Cmd {
@@ -200,6 +245,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		h, v := lipgloss.NewStyle().GetFrameSize()
 		m.list.SetSize(msg.Width-h, msg.Height-v)
 		m.filePickerList.SetSize(msg.Width-h, msg.Height-v)
+		// For split screen, divide width by 2
+		halfWidth := (msg.Width - h - 2) / 2
+		m.localFileList.SetSize(halfWidth, msg.Height-v-8)
+		m.remoteFileList.SetSize(halfWidth, msg.Height-v-8)
 		return m, nil
 
 	case tea.KeyMsg:
@@ -214,6 +263,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateMenuView(msg)
 		case pemEditView:
 			return m.updatePemEditView(msg)
+		case sftpView:
+			return m.updateSFTPView(msg)
 		}
 	}
 
@@ -273,6 +324,30 @@ func (m model) updateListView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.menuCursor = 0
 		m.message = ""
 		return m, nil
+
+	case "s":
+		if len(m.config.Servers) > 0 {
+			selected := m.list.SelectedItem()
+			if server, ok := selected.(Server); ok {
+				m.selectedServer = &server
+				// Establish SFTP connection
+				sftpMgr, err := ConnectSFTP(&server)
+				if err != nil {
+					m.message = fmt.Sprintf("Error connecting to SFTP: %v", err)
+					return m, nil
+				}
+				m.sftpManager = sftpMgr
+				m.state = sftpView
+				m.localPath = os.Getenv("HOME")
+				m.remotePath = "/"
+				m.focusPane = "local"
+				m.message = ""
+				// Load files
+				m.loadLocalFiles(m.localPath)
+				m.loadRemoteFiles(m.remotePath)
+				return m, nil
+			}
+		}
 	}
 
 	var cmd tea.Cmd
@@ -451,6 +526,7 @@ func (m *model) validateAndSave() bool {
 	username := strings.TrimSpace(m.inputs[3].Value())
 	password := m.inputs[4].Value()
 	pemKey := m.inputs[5].Value()
+	sftpPortStr := strings.TrimSpace(m.inputs[6].Value())
 
 	if name == "" {
 		m.message = "Error: Name is required"
@@ -481,6 +557,17 @@ func (m *model) validateAndSave() bool {
 		}
 	}
 
+	// Handle SFTP port (defaults to SSH port if not specified)
+	sftpPort := port
+	if sftpPortStr != "" {
+		var err error
+		sftpPort, err = strconv.Atoi(sftpPortStr)
+		if err != nil || sftpPort < 1 || sftpPort > 65535 {
+			m.message = "Error: Invalid SFTP port number"
+			return false
+		}
+	}
+
 	// Validate PEM key format if provided
 	if pemKey != "" {
 		normalized := normalizePemKey(pemKey)
@@ -499,6 +586,7 @@ func (m *model) validateAndSave() bool {
 			Username: username,
 			Password: password,
 			PemKey:   pemKey,
+			SFTPPort: sftpPort,
 		}
 		m.config.Servers = append(m.config.Servers, server)
 		m.config.NextID++
@@ -512,6 +600,7 @@ func (m *model) validateAndSave() bool {
 				m.config.Servers[i].Username = username
 				m.config.Servers[i].Password = password
 				m.config.Servers[i].PemKey = pemKey
+				m.config.Servers[i].SFTPPort = sftpPort
 				m.message = fmt.Sprintf("Updated server: %s", name)
 				break
 			}
@@ -647,12 +736,13 @@ func (m *model) exportServers() {
 	exportData := make([]map[string]interface{}, len(m.config.Servers))
 	for i, server := range m.config.Servers {
 		exportData[i] = map[string]interface{}{
-			"name":     server.Name,
-			"host":     server.Host,
-			"port":     server.Port,
-			"username": server.Username,
-			"password": server.Password,
-			"pem_key":  server.PemKey,
+			"name":      server.Name,
+			"host":      server.Host,
+			"port":      server.Port,
+			"username":  server.Username,
+			"password":  server.Password,
+			"pem_key":   server.PemKey,
+			"sftp_port": server.SFTPPort,
 		}
 	}
 
@@ -706,6 +796,12 @@ func (m *model) importServers() {
 
 		if pemKey, ok := item["pem_key"].(string); ok {
 			server.PemKey = pemKey
+		}
+
+		if sftpPort, ok := item["sftp_port"].(float64); ok {
+			server.SFTPPort = int(sftpPort)
+		} else {
+			server.SFTPPort = server.Port
 		}
 
 		m.config.Servers = append(m.config.Servers, server)
@@ -955,6 +1051,12 @@ func (m *model) importServersFromPath(importPath string) {
 			server.PemKey = pemKey
 		}
 
+		if sftpPort, ok := item["sftp_port"].(float64); ok {
+			server.SFTPPort = int(sftpPort)
+		} else {
+			server.SFTPPort = server.Port
+		}
+
 		m.config.Servers = append(m.config.Servers, server)
 		m.config.NextID++
 		count++
@@ -973,12 +1075,13 @@ func (m *model) exportServersToPath(exportPath string) {
 	exportData := make([]map[string]interface{}, len(m.config.Servers))
 	for i, server := range m.config.Servers {
 		exportData[i] = map[string]interface{}{
-			"name":     server.Name,
-			"host":     server.Host,
-			"port":     server.Port,
-			"username": server.Username,
-			"password": server.Password,
-			"pem_key":  server.PemKey,
+			"name":      server.Name,
+			"host":      server.Host,
+			"port":      server.Port,
+			"username":  server.Username,
+			"password":  server.Password,
+			"pem_key":   server.PemKey,
+			"sftp_port": server.SFTPPort,
 		}
 	}
 
@@ -1010,12 +1113,14 @@ func (m model) View() string {
 		return m.viewFilePicker()
 	case pemEditView:
 		return m.viewPemEdit()
+	case sftpView:
+		return m.viewSFTP()
 	}
 	return ""
 }
 
 func (m model) viewList() string {
-	help := helpStyle.Render("\nKeys: [a]dd • [e]dit • [d]elete • [enter] connect • [m]enu • [q]uit")
+	help := helpStyle.Render("\nKeys: [a]dd • [e]dit • [d]elete • [enter] connect • [s]ftp • [m]enu • [q]uit")
 
 	if m.message != "" {
 		msgStyle := messageStyle
@@ -1133,6 +1238,370 @@ func (m model) viewPemEdit() string {
 	}
 
 	return b.String()
+}
+
+// SFTP View Functions
+func (m model) updateSFTPView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c", "q", "esc":
+		// Close SFTP and return to list
+		if m.sftpManager != nil {
+			m.sftpManager.Close()
+		}
+		m.selectedServer = nil
+		m.sftpManager = nil
+		m.state = listView
+		m.message = ""
+		return m, nil
+
+	case "tab":
+		// Switch between local and remote panes
+		if m.focusPane == "local" {
+			m.focusPane = "remote"
+		} else {
+			m.focusPane = "local"
+		}
+		return m, nil
+
+	case "enter":
+		// Navigate into directory or handle action
+		if m.focusPane == "local" {
+			sel := m.localFileList.SelectedItem()
+			if sel == nil {
+				return m, nil
+			}
+			fileName := sel.FilterValue()
+			m.navigateLocalDir(fileName)
+		} else {
+			sel := m.remoteFileList.SelectedItem()
+			if sel == nil {
+				return m, nil
+			}
+			fileName := sel.FilterValue()
+			m.navigateRemoteDir(fileName)
+		}
+		return m, nil
+
+	case "c":
+		// Copy from one side to the other
+		m.performCopy()
+		return m, nil
+
+	case "d":
+		// Delete selected file
+		if m.focusPane == "local" {
+			m.deleteLocalFile()
+		} else {
+			m.deleteRemoteFile()
+		}
+		return m, nil
+
+	case "r":
+		// Rename selected file
+		m.message = "Rename not yet implemented"
+		return m, nil
+	}
+
+	// Handle arrow keys and list navigation
+	var cmd tea.Cmd
+	if m.focusPane == "local" {
+		m.localFileList, cmd = m.localFileList.Update(msg)
+	} else {
+		m.remoteFileList, cmd = m.remoteFileList.Update(msg)
+	}
+	return m, cmd
+}
+
+func (m model) viewSFTP() string {
+	var b strings.Builder
+	server := m.selectedServer
+	if server == nil {
+		return ""
+	}
+
+	headerStyle := titleStyle
+	b.WriteString(headerStyle.Render(fmt.Sprintf("SFTP: %s@%s", server.Username, server.Host)) + "\n")
+
+	// Progress indicator if transferring
+	if m.isTransferring {
+		progressBar := fmt.Sprintf("[%d%%]", m.transferProgress)
+		b.WriteString(messageStyle.Render(progressBar) + " " + m.transferMessage + "\n")
+	}
+	b.WriteString("\n")
+
+	// Path headers
+	localHeader := "LOCAL"
+	remoteHeader := "REMOTE"
+	if m.focusPane == "local" {
+		localHeader = "> " + localHeader + " <"
+	} else {
+		remoteHeader = "> " + remoteHeader + " <"
+	}
+
+	b.WriteString(helpStyle.Render(localHeader) + "  " + helpStyle.Render(remoteHeader) + "\n")
+	b.WriteString(helpStyle.Render(m.localPath) + " | " + helpStyle.Render(m.remotePath) + "\n\n")
+
+	// Split screen display
+	localView := m.localFileList.View()
+	remoteView := m.remoteFileList.View()
+
+	// Split the views side by side
+	localLines := strings.Split(localView, "\n")
+	remoteLines := strings.Split(remoteView, "\n")
+
+	maxLines := len(localLines)
+	if len(remoteLines) > maxLines {
+		maxLines = len(remoteLines)
+	}
+
+	for i := 0; i < maxLines; i++ {
+		var localLine, remoteLine string
+		if i < len(localLines) {
+			localLine = localLines[i]
+		}
+		if i < len(remoteLines) {
+			remoteLine = remoteLines[i]
+		}
+
+		// Ensure proper spacing
+		if len(localLine) < 40 {
+			localLine += strings.Repeat(" ", 40-len(localLine))
+		}
+
+		b.WriteString(localLine + " | " + remoteLine + "\n")
+	}
+
+	b.WriteString("\n" + helpStyle.Render("Keys: [Tab] switch pane • [c]opy • [d]elete • [enter] navigate • [q]uit"))
+
+	if m.message != "" {
+		msgStyle := messageStyle
+		if strings.HasPrefix(m.message, "Error") {
+			msgStyle = errorStyle
+		}
+		b.WriteString("\n" + msgStyle.Render(m.message))
+	}
+
+	return b.String()
+}
+
+func (m *model) loadLocalFiles(path string) {
+	entries, err := ioutil.ReadDir(path)
+	if err != nil {
+		m.message = fmt.Sprintf("Error reading local directory: %v", err)
+		m.localFileList.SetItems([]list.Item{})
+		return
+	}
+
+	items := make([]list.Item, 0, len(entries)+1)
+
+	// Add parent directory
+	if path != "/" {
+		items = append(items, fileItem("../"))
+	}
+
+	// Add files and directories
+	for _, f := range entries {
+		name := f.Name()
+		if f.IsDir() {
+			name = name + "/"
+		}
+		items = append(items, fileItem(name))
+	}
+
+	m.localFileList.SetItems(items)
+	m.localPath = path
+}
+
+func (m *model) loadRemoteFiles(path string) {
+	if m.sftpManager == nil {
+		m.message = "Error: SFTP connection lost"
+		return
+	}
+
+	files, err := m.sftpManager.ListFiles(path)
+	if err != nil {
+		m.message = fmt.Sprintf("Error listing remote files: %v", err)
+		m.remoteFileList.SetItems([]list.Item{})
+		return
+	}
+
+	items := make([]list.Item, 0, len(files)+1)
+
+	// Add parent directory
+	if path != "/" {
+		items = append(items, fileItem("../"))
+	}
+
+	// Add files and directories
+	for _, f := range files {
+		name := f.Name()
+		if f.IsDir() {
+			name = name + "/"
+		}
+		items = append(items, fileItem(name))
+	}
+
+	m.remoteFileList.SetItems(items)
+	m.remotePath = path
+}
+
+func (m *model) navigateLocalDir(fileName string) {
+	if strings.HasSuffix(fileName, "/") {
+		dirName := strings.TrimSuffix(fileName, "/")
+		if dirName == "../" {
+			m.localPath = filepath.Dir(m.localPath)
+		} else {
+			m.localPath = filepath.Join(m.localPath, dirName)
+		}
+		m.loadLocalFiles(m.localPath)
+	}
+}
+
+func (m *model) navigateRemoteDir(fileName string) {
+	if strings.HasSuffix(fileName, "/") {
+		dirName := strings.TrimSuffix(fileName, "/")
+		var newPath string
+		if dirName == "../" {
+			newPath = filepath.Dir(m.remotePath)
+			if newPath == "." {
+				newPath = "/"
+			}
+		} else {
+			if m.remotePath == "/" {
+				newPath = "/" + dirName
+			} else {
+				newPath = filepath.Join(m.remotePath, dirName)
+			}
+		}
+		m.remotePath = newPath
+		m.loadRemoteFiles(m.remotePath)
+	}
+}
+
+func (m *model) performCopy() {
+	var srcFile, dstFile string
+	var isLocalToRemote bool
+
+	if m.focusPane == "local" {
+		// Copy from local to remote
+		sel := m.localFileList.SelectedItem()
+		if sel == nil {
+			m.message = "No file selected"
+			return
+		}
+		fileName := sel.FilterValue()
+		if strings.HasSuffix(fileName, "/") {
+			m.message = "Cannot copy directories"
+			return
+		}
+		srcFile = filepath.Join(m.localPath, fileName)
+		dstFile = filepath.Join(m.remotePath, fileName)
+		isLocalToRemote = true
+	} else {
+		// Copy from remote to local
+		sel := m.remoteFileList.SelectedItem()
+		if sel == nil {
+			m.message = "No file selected"
+			return
+		}
+		fileName := sel.FilterValue()
+		if strings.HasSuffix(fileName, "/") {
+			m.message = "Cannot copy directories"
+			return
+		}
+		srcFile = filepath.Join(m.remotePath, fileName)
+		dstFile = filepath.Join(m.localPath, fileName)
+		isLocalToRemote = false
+	}
+
+	m.isTransferring = true
+	m.transferMessage = fmt.Sprintf("Copying %s...", filepath.Base(srcFile))
+
+	if isLocalToRemote {
+		m.copyLocalToRemote(srcFile, dstFile)
+	} else {
+		m.copyRemoteToLocal(srcFile, dstFile)
+	}
+
+	m.isTransferring = false
+	m.transferProgress = 0
+	m.loadLocalFiles(m.localPath)
+	m.loadRemoteFiles(m.remotePath)
+}
+
+func (m *model) copyLocalToRemote(localPath, remotePath string) {
+	if m.sftpManager == nil {
+		m.message = "Error: SFTP connection lost"
+		return
+	}
+
+	if err := m.sftpManager.UploadFile(localPath, remotePath); err != nil {
+		m.message = fmt.Sprintf("Error uploading: %v", err)
+	} else {
+		m.message = fmt.Sprintf("Uploaded %s", filepath.Base(localPath))
+		m.transferProgress = 100
+	}
+}
+
+func (m *model) copyRemoteToLocal(remotePath, localPath string) {
+	if m.sftpManager == nil {
+		m.message = "Error: SFTP connection lost"
+		return
+	}
+
+	if err := m.sftpManager.DownloadFile(remotePath, localPath); err != nil {
+		m.message = fmt.Sprintf("Error downloading: %v", err)
+	} else {
+		m.message = fmt.Sprintf("Downloaded %s", filepath.Base(remotePath))
+		m.transferProgress = 100
+	}
+}
+
+func (m *model) deleteLocalFile() {
+	sel := m.localFileList.SelectedItem()
+	if sel == nil {
+		m.message = "No file selected"
+		return
+	}
+	fileName := sel.FilterValue()
+	if strings.HasSuffix(fileName, "/") {
+		m.message = "Cannot delete directories"
+		return
+	}
+
+	filePath := filepath.Join(m.localPath, fileName)
+	if err := os.Remove(filePath); err != nil {
+		m.message = fmt.Sprintf("Error deleting: %v", err)
+	} else {
+		m.message = fmt.Sprintf("Deleted %s", fileName)
+		m.loadLocalFiles(m.localPath)
+	}
+}
+
+func (m *model) deleteRemoteFile() {
+	sel := m.remoteFileList.SelectedItem()
+	if sel == nil {
+		m.message = "No file selected"
+		return
+	}
+	fileName := sel.FilterValue()
+	if strings.HasSuffix(fileName, "/") {
+		m.message = "Cannot delete directories"
+		return
+	}
+
+	if m.sftpManager == nil {
+		m.message = "Error: SFTP connection lost"
+		return
+	}
+
+	filePath := filepath.Join(m.remotePath, fileName)
+	if err := m.sftpManager.DeleteFile(filePath); err != nil {
+		m.message = fmt.Sprintf("Error deleting: %v", err)
+	} else {
+		m.message = fmt.Sprintf("Deleted %s", fileName)
+		m.loadRemoteFiles(m.remotePath)
+	}
 }
 
 func main() {
