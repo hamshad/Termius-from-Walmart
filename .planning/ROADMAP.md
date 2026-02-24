@@ -24,14 +24,14 @@ A CLI-based modern SSH client with compelling TUI, local connection management, 
 |------|------|--------|
 | 02-01 | TUI Redesign | Done |
 
-### Phase 03: UX Polish
+### Phase 03: UX Polish ✅
 **Goal:** Loading spinners, connection feedback, file metadata, keyboard shortcut overlay.
 **Plans:** 1
-**Status:** In Progress
+**Status:** Done
 
 | Plan | Name | Status |
 |------|------|--------|
-| 03-01 | UX Improvements | Pending |
+| 03-01 | UX Improvements | Done |
 
 ### Phase 04: Security
 **Goal:** Encrypt stored credentials, master password, keychain integration.
@@ -57,6 +57,6 @@ A CLI-based modern SSH client with compelling TUI, local connection management, 
 |-------|-------------|------------|--------|
 | 01 | 1 | 1 | Done |
 | 02 | 1 | 1 | Done |
-| 03 | 1 | 0 | In Progress |
+| 03 | 1 | 1 | Done |
 | 04 | 1 | 0 | Pending |
 | 05 | 1 | 0 | Pending |

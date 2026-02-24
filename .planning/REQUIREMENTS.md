@@ -29,7 +29,7 @@
 - [x] **BUILD-01**: Makefile builds all .go files (not just main.go)
 - [x] **UX-01**: Compelling, aesthetic TUI with themed color palette
 - [x] **UX-02**: Responsive SFTP split-screen layout
-- [ ] **UX-03**: Loading/connection state indicators
+- [x] **UX-03**: Loading/connection state indicators
 - [ ] **SEC-01**: Encrypted credential storage with master password
 - [ ] **SEC-02**: Keychain integration (macOS Keychain / Linux secret-service)
 
@@ -61,6 +61,6 @@
 | BUILD-01 | Phase 01 | Done |
 | UX-01 | Phase 02 | Done |
 | UX-02 | Phase 02 | Done |
-| UX-03 | Phase 03 | Pending |
+| UX-03 | Phase 03 | Done |
 | SEC-01 | Phase 04 | Pending |
 | SEC-02 | Phase 04 | Pending |
