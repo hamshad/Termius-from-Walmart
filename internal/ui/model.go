@@ -169,6 +169,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case SFTPConnectMsg:
+		// If user cancelled (no longer in ConnectingView), clean up
+		if m.State != ConnectingView {
+			if msg.Manager != nil {
+				msg.Manager.Close()
+			}
+			return m, nil
+		}
 		if msg.Err != nil {
 			m.State = ListView
 			m.Message = fmt.Sprintf("Error connecting to SFTP: %v", msg.Err)
