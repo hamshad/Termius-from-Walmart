@@ -6,19 +6,19 @@ A CLI-based modern SSH client with compelling TUI, local connection management, 
 
 ## Phases
 
-### Phase 01: Restructure & Harden
+### Phase 01: Restructure & Harden ✅
 **Goal:** Transform the 1613-line monolith into a modular, tested, maintainable codebase.
 **Plans:** 1
-**Status:** In Progress
+**Status:** Done
 
 | Plan | Name | Status |
 |------|------|--------|
-| 01-01 | Modularize & Test | Pending |
+| 01-01 | Modularize & Test | Done |
 
 ### Phase 02: Visual Overhaul
 **Goal:** Redesign TUI with compelling aesthetics — themed palette, box layouts, responsive panels.
 **Plans:** 1
-**Status:** Pending
+**Status:** In Progress
 
 | Plan | Name | Status |
 |------|------|--------|
@@ -55,8 +55,8 @@ A CLI-based modern SSH client with compelling TUI, local connection management, 
 
 | Phase | Plans Total | Plans Done | Status |
 |-------|-------------|------------|--------|
-| 01 | 1 | 0 | In Progress |
-| 02 | 1 | 0 | Pending |
+| 01 | 1 | 1 | Done |
+| 02 | 1 | 0 | In Progress |
 | 03 | 1 | 0 | Pending |
 | 04 | 1 | 0 | Pending |
 | 05 | 1 | 0 | Pending |
