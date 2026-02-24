@@ -56,7 +56,7 @@ func (m Model) viewList() string {
 	}
 	b.WriteString(renderKeyBar(w,
 		"a", "add", "e", "edit", "d", "delete",
-		"enter", "connect", "s", "sftp", "m", "menu", "q", "quit",
+		"enter", "connect", "s", "sftp", "m", "menu", "?", "help", "q", "quit",
 	))
 
 	return b.String()
@@ -332,7 +332,7 @@ func (m Model) viewSFTP() string {
 
 	b.WriteString("\n")
 	b.WriteString(renderKeyBar(totalWidth,
-		"tab", "switch pane", "c", "copy", "d", "delete", "enter", "navigate", "q", "quit",
+		"tab", "switch pane", "c", "copy", "d", "delete", "enter", "navigate", "?", "help", "q", "quit",
 	))
 
 	return b.String()
@@ -409,4 +409,151 @@ func truncatePath(path string, maxLen int) string {
 		return path
 	}
 	return "..." + path[len(path)-maxLen+3:]
+}
+
+// ── Connecting View ────────────────────────────────────────────────────
+
+var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+// viewConnecting renders the spinner while establishing SFTP connection.
+func (m Model) viewConnecting() string {
+	var b strings.Builder
+
+	b.WriteString(m.renderHeader())
+
+	frame := spinnerFrames[m.SpinnerFrame%len(spinnerFrames)]
+	spinner := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true).Render(frame)
+
+	serverName := m.ConnectingName
+	if m.SelectedServer != nil {
+		serverName = fmt.Sprintf("%s (%s@%s:%d)",
+			m.SelectedServer.Name, m.SelectedServer.Username,
+			m.SelectedServer.Host, m.SelectedServer.Port)
+	}
+
+	msg := lipgloss.NewStyle().Foreground(ColorText).Render(
+		fmt.Sprintf(" Connecting to %s...", serverName))
+
+	content := "\n\n" + spinner + msg + "\n\n" +
+		HelpStyle.Render("  Establishing SFTP connection, please wait...")
+
+	if m.Width > 0 && m.Height > 0 {
+		box := PanelStyle.Width(ClampWidth(m.Width-10, MinPaneWidth, 70)).Render(content)
+		return b.String() + "\n" + lipgloss.Place(m.Width, m.Height-4,
+			lipgloss.Center, lipgloss.Center, box)
+	}
+	b.WriteString(PanelStyle.Render(content))
+	return b.String()
+}
+
+// updateConnectingView handles keys during the connecting spinner.
+func (m Model) updateConnectingView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "esc":
+		// Cancel connecting — go back to list
+		m.State = ListView
+		m.SelectedServer = nil
+		m.ConnectingName = ""
+		m.Message = "Connection cancelled"
+		m.MessageTimer++
+		return m, clearMessageAfter(3 * secondDuration)
+	}
+	return m, nil
+}
+
+// ── Help Overlay ───────────────────────────────────────────────────────
+
+// viewHelp renders a keyboard shortcut help overlay.
+func (m Model) viewHelp() string {
+	var b strings.Builder
+
+	b.WriteString(m.renderHeader())
+
+	var content strings.Builder
+	content.WriteString(ConfirmTitleStyle.Render("  Keyboard Shortcuts") + "\n\n")
+
+	// Organized by view
+	sections := []struct {
+		title string
+		keys  []struct{ key, desc string }
+	}{
+		{
+			title: "Server List",
+			keys: []struct{ key, desc string }{
+				{"a", "Add new server"},
+				{"e", "Edit selected server"},
+				{"d", "Delete selected server"},
+				{"enter", "SSH connect to server"},
+				{"s", "Open SFTP file browser"},
+				{"m", "Import/Export menu"},
+				{"/", "Filter servers"},
+				{"q", "Quit application"},
+			},
+		},
+		{
+			title: "SFTP Browser",
+			keys: []struct{ key, desc string }{
+				{"tab", "Switch local/remote pane"},
+				{"enter", "Navigate into directory"},
+				{"c", "Copy file to other pane"},
+				{"d", "Delete selected file"},
+				{"q/esc", "Close SFTP & return"},
+			},
+		},
+		{
+			title: "Forms & Editors",
+			keys: []struct{ key, desc string }{
+				{"tab", "Next field"},
+				{"shift+tab", "Previous field"},
+				{"p", "Open PEM editor (on PEM field)"},
+				{"ctrl+s", "Save PEM key"},
+				{"enter", "Submit form"},
+				{"esc", "Cancel / go back"},
+			},
+		},
+		{
+			title: "Global",
+			keys: []struct{ key, desc string }{
+				{"?", "Toggle this help overlay"},
+				{"ctrl+c", "Force quit"},
+			},
+		},
+	}
+
+	for _, section := range sections {
+		content.WriteString(SectionHeaderStyle.Render(section.title) + "\n")
+		for _, k := range section.keys {
+			key := KeyStyle.Render(fmt.Sprintf("%-12s", k.key))
+			desc := lipgloss.NewStyle().Foreground(ColorTextDim).Render(k.desc)
+			content.WriteString("  " + key + " " + desc + "\n")
+		}
+		content.WriteString("\n")
+	}
+
+	content.WriteString(HelpStyle.Render("Press ? or esc to close"))
+
+	modal := ModalStyle.Width(55).Render(content.String())
+
+	if m.Width > 0 && m.Height > 0 {
+		return b.String() + lipgloss.Place(m.Width, m.Height-2,
+			lipgloss.Center, lipgloss.Center, modal)
+	}
+	return b.String() + "\n\n" + modal
+}
+
+// updateHelpView handles keys in the help overlay.
+func (m Model) updateHelpView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "?", "esc", "q":
+		m.State = m.PreviousState
+		if m.State == HelpView || m.State == 0 {
+			m.State = ListView
+		}
+		return m, nil
+	}
+	return m, nil
 }

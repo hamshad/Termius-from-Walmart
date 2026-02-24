@@ -25,6 +25,8 @@ const (
 	FilePickerView
 	SFTPView
 	ConfirmView
+	ConnectingView
+	HelpView
 )
 
 // Model is the top-level Bubble Tea model for the entire application.
@@ -73,6 +75,13 @@ type Model struct {
 
 	// Previous state (for returning from confirm)
 	PreviousState ViewState
+
+	// Spinner / connecting state
+	SpinnerFrame   int
+	ConnectingName string // server name being connected to
+
+	// Message auto-clear
+	MessageTimer int // generation counter for clearing messages
 }
 
 // NewModel creates and returns a fully initialized Model.
@@ -104,22 +113,25 @@ func NewModel() Model {
 		MenuOptions: []string{"Import Servers", "Export Servers", "Back to List"},
 		MenuCursor:  0,
 		FilePickerList: func() list.Model {
-			fl := list.New([]list.Item{}, FileDelegate{}, 0, 0)
+			fl := list.New([]list.Item{}, FileDelegate{ShowMetadata: false}, 0, 0)
 			fl.SetShowStatusBar(false)
 			fl.SetFilteringEnabled(false)
+			fl.SetShowHelp(false)
 			return fl
 		}(),
 		FilePickerShowHidden: false,
 		LocalFileList: func() list.Model {
-			fl := list.New([]list.Item{}, FileDelegate{}, 0, 0)
+			fl := list.New([]list.Item{}, FileDelegate{ShowMetadata: true}, 0, 0)
 			fl.SetShowStatusBar(false)
 			fl.SetFilteringEnabled(false)
+			fl.SetShowHelp(false)
 			return fl
 		}(),
 		RemoteFileList: func() list.Model {
-			fl := list.New([]list.Item{}, FileDelegate{}, 0, 0)
+			fl := list.New([]list.Item{}, FileDelegate{ShowMetadata: true}, 0, 0)
 			fl.SetShowStatusBar(false)
 			fl.SetFilteringEnabled(false)
+			fl.SetShowHelp(false)
 			return fl
 		}(),
 		LocalPath:        os.Getenv("HOME"),
@@ -149,7 +161,75 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.RemoteFileList.SetSize(halfWidth, msg.Height-v-10)
 		return m, nil
 
+	case SpinnerTickMsg:
+		if m.State == ConnectingView {
+			m.SpinnerFrame++
+			return m, spinnerTick()
+		}
+		return m, nil
+
+	case SFTPConnectMsg:
+		if msg.Err != nil {
+			m.State = ListView
+			m.Message = fmt.Sprintf("Error connecting to SFTP: %v", msg.Err)
+			m.MessageTimer++
+			return m, clearMessageAfter(5 * secondDuration)
+		}
+		m.SFTPManager = msg.Manager
+		m.State = SFTPView
+		m.LocalPath = homeDir()
+		m.RemotePath = "/"
+		m.FocusPane = "local"
+		m.Message = fmt.Sprintf("Connected to %s", m.ConnectingName)
+		m.MessageTimer++
+		m.loadLocalFiles(m.LocalPath)
+		m.loadRemoteFiles(m.RemotePath)
+		return m, clearMessageAfter(3 * secondDuration)
+
+	case TransferCompleteMsg:
+		m.IsTransferring = false
+		m.TransferProgress = 0
+		if msg.Err != nil {
+			if msg.IsUpload {
+				m.Message = fmt.Sprintf("Error uploading: %v", msg.Err)
+			} else {
+				m.Message = fmt.Sprintf("Error downloading: %v", msg.Err)
+			}
+		} else {
+			if msg.IsUpload {
+				m.Message = fmt.Sprintf("Uploaded %s", msg.FileName)
+			} else {
+				m.Message = fmt.Sprintf("Downloaded %s", msg.FileName)
+			}
+			m.TransferProgress = 100
+		}
+		m.loadLocalFiles(m.LocalPath)
+		m.loadRemoteFiles(m.RemotePath)
+		m.MessageTimer++
+		return m, clearMessageAfter(3 * secondDuration)
+
+	case ClearMessageMsg:
+		// Only clear if no newer message was set
+		m.MessageTimer--
+		if m.MessageTimer <= 0 {
+			m.Message = ""
+			m.MessageTimer = 0
+		}
+		return m, nil
+
 	case tea.KeyMsg:
+		// Global help toggle (except in text input views)
+		if msg.String() == "?" && m.State != AddView && m.State != EditView &&
+			m.State != PemEditView && m.State != ConnectingView && m.State != ConfirmView {
+			if m.State == HelpView {
+				m.State = m.PreviousState
+				return m, nil
+			}
+			m.PreviousState = m.State
+			m.State = HelpView
+			return m, nil
+		}
+
 		switch m.State {
 		case ListView:
 			return m.updateListView(msg)
@@ -165,6 +245,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateSFTPView(msg)
 		case ConfirmView:
 			return m.updateConfirmView(msg)
+		case ConnectingView:
+			return m.updateConnectingView(msg)
+		case HelpView:
+			return m.updateHelpView(msg)
 		}
 	}
 
@@ -192,6 +276,10 @@ func (m Model) View() string {
 		return m.viewSFTP()
 	case ConfirmView:
 		return m.viewConfirm()
+	case ConnectingView:
+		return m.viewConnecting()
+	case HelpView:
+		return m.viewHelp()
 	}
 	return ""
 }

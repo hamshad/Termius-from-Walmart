@@ -48,8 +48,11 @@ func (m Model) updateSFTPView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "c":
-		m.performCopy()
-		return m, nil
+		if m.IsTransferring {
+			return m, nil // don't start another transfer while one is in progress
+		}
+		cmd := m.performCopy()
+		return m, cmd
 
 	case "d":
 		if m.FocusPane == "local" {
@@ -127,15 +130,11 @@ func (m *Model) loadLocalFiles(path string) {
 
 	items := make([]list.Item, 0, len(entries)+1)
 	if path != "/" {
-		items = append(items, FileItem("../"))
+		items = append(items, FileItem{Name: "..", IsDir: true})
 	}
 
 	for _, f := range entries {
-		name := f.Name()
-		if f.IsDir() {
-			name = name + "/"
-		}
-		items = append(items, FileItem(name))
+		items = append(items, NewFileItemFromDirEntry(f))
 	}
 
 	m.LocalFileList.SetItems(items)
@@ -157,15 +156,11 @@ func (m *Model) loadRemoteFiles(path string) {
 
 	items := make([]list.Item, 0, len(files)+1)
 	if path != "/" {
-		items = append(items, FileItem("../"))
+		items = append(items, FileItem{Name: "..", IsDir: true})
 	}
 
 	for _, f := range files {
-		name := f.Name()
-		if f.IsDir() {
-			name = name + "/"
-		}
-		items = append(items, FileItem(name))
+		items = append(items, NewFileItemFromInfo(f))
 	}
 
 	m.RemoteFileList.SetItems(items)
@@ -208,7 +203,7 @@ func (m *Model) navigateRemoteDir(fileName string) {
 	}
 }
 
-func (m *Model) performCopy() {
+func (m *Model) performCopy() tea.Cmd {
 	var srcFile, dstFile string
 	var isLocalToRemote bool
 
@@ -216,12 +211,12 @@ func (m *Model) performCopy() {
 		sel := m.LocalFileList.SelectedItem()
 		if sel == nil {
 			m.Message = "No file selected"
-			return
+			return nil
 		}
 		fileName := sel.FilterValue()
 		if strings.HasSuffix(fileName, "/") {
 			m.Message = "Cannot copy directories"
-			return
+			return nil
 		}
 		srcFile = filepath.Join(m.LocalPath, fileName)
 		dstFile = filepath.Join(m.RemotePath, fileName)
@@ -230,45 +225,26 @@ func (m *Model) performCopy() {
 		sel := m.RemoteFileList.SelectedItem()
 		if sel == nil {
 			m.Message = "No file selected"
-			return
+			return nil
 		}
 		fileName := sel.FilterValue()
 		if strings.HasSuffix(fileName, "/") {
 			m.Message = "Cannot copy directories"
-			return
+			return nil
 		}
 		srcFile = filepath.Join(m.RemotePath, fileName)
 		dstFile = filepath.Join(m.LocalPath, fileName)
 		isLocalToRemote = false
 	}
 
-	m.IsTransferring = true
-	m.TransferMessage = fmt.Sprintf("Copying %s...", filepath.Base(srcFile))
-
 	if m.SFTPManager == nil {
 		m.Message = "Error: SFTP connection lost"
-		m.IsTransferring = false
-		return
+		return nil
 	}
 
-	if isLocalToRemote {
-		if err := m.SFTPManager.UploadFile(srcFile, dstFile); err != nil {
-			m.Message = fmt.Sprintf("Error uploading: %v", err)
-		} else {
-			m.Message = fmt.Sprintf("Uploaded %s", filepath.Base(srcFile))
-			m.TransferProgress = 100
-		}
-	} else {
-		if err := m.SFTPManager.DownloadFile(srcFile, dstFile); err != nil {
-			m.Message = fmt.Sprintf("Error downloading: %v", err)
-		} else {
-			m.Message = fmt.Sprintf("Downloaded %s", filepath.Base(srcFile))
-			m.TransferProgress = 100
-		}
-	}
-
-	m.IsTransferring = false
+	m.IsTransferring = true
+	m.TransferMessage = fmt.Sprintf("Copying %s...", filepath.Base(srcFile))
 	m.TransferProgress = 0
-	m.loadLocalFiles(m.LocalPath)
-	m.loadRemoteFiles(m.RemotePath)
+
+	return transferFileCmd(m.SFTPManager, srcFile, dstFile, isLocalToRemote)
 }

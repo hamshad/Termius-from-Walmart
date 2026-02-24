@@ -63,6 +63,7 @@ func (m Model) updateListView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(m.Config.Servers) > 0 {
 			selected := m.List.SelectedItem()
 			if server, ok := selected.(models.Server); ok {
+				m.Message = fmt.Sprintf("Connecting to %s@%s:%d...", server.Username, server.Host, server.Port)
 				return m, tea.Sequence(
 					tea.ExecProcess(ssh.BuildSSHCommand(server), func(err error) tea.Msg {
 						return err
@@ -82,20 +83,11 @@ func (m Model) updateListView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			selected := m.List.SelectedItem()
 			if server, ok := selected.(models.Server); ok {
 				m.SelectedServer = &server
-				sftpMgr, err := ConnectSFTP(&server)
-				if err != nil {
-					m.Message = fmt.Sprintf("Error connecting to SFTP: %v", err)
-					return m, nil
-				}
-				m.SFTPManager = sftpMgr
-				m.State = SFTPView
-				m.LocalPath = homeDir()
-				m.RemotePath = "/"
-				m.FocusPane = "local"
+				m.ConnectingName = server.Name
+				m.SpinnerFrame = 0
+				m.State = ConnectingView
 				m.Message = ""
-				m.loadLocalFiles(m.LocalPath)
-				m.loadRemoteFiles(m.RemotePath)
-				return m, nil
+				return m, tea.Batch(connectSFTPCmd(&server), spinnerTick())
 			}
 		}
 	}

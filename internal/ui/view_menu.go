@@ -152,7 +152,7 @@ func (m *Model) loadFileList() {
 
 	items := make([]list.Item, 0, len(entries)+1)
 	if parent := filepath.Dir(m.FilePickerPath); parent != m.FilePickerPath {
-		items = append(items, FileItem("../"))
+		items = append(items, FileItem{Name: "..", IsDir: true})
 	}
 
 	for _, e := range entries {
@@ -160,10 +160,7 @@ func (m *Model) loadFileList() {
 		if !m.FilePickerShowHidden && strings.HasPrefix(name, ".") {
 			continue
 		}
-		if e.IsDir() {
-			name = name + "/"
-		}
-		items = append(items, FileItem(name))
+		items = append(items, NewFileItemFromDirEntry(e))
 	}
 
 	m.FilePickerList.SetItems(items)
