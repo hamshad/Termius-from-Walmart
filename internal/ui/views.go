@@ -2,93 +2,169 @@ package ui
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
+
+// ── App Header ─────────────────────────────────────────────────────────
+
+const appName = "Termius from Walmart"
+
+func (m Model) renderHeader() string {
+	logo := AppHeaderStyle.Render("  " + appName)
+	count := fmt.Sprintf(" %d servers", len(m.Config.Servers))
+	info := AppVersionStyle.Render(count)
+	return logo + " " + info + "\n"
+}
+
+// ── Key Bar Helpers ────────────────────────────────────────────────────
+
+func renderKeyBar(width int, pairs ...string) string {
+	var parts []string
+	for i := 0; i < len(pairs)-1; i += 2 {
+		parts = append(parts, RenderKey(pairs[i], pairs[i+1]))
+	}
+	bar := strings.Join(parts, "    ")
+	return StatusBarStyle.Width(width).Render(bar)
+}
+
+// ── List View ──────────────────────────────────────────────────────────
 
 // viewList renders the main server list screen.
 func (m Model) viewList() string {
-	help := HelpStyle.Render("\nKeys: [a]dd  [e]dit  [d]elete  [enter] connect  [s]ftp  [m]enu  [q]uit")
+	var b strings.Builder
 
+	b.WriteString(m.renderHeader())
+	b.WriteString(m.List.View())
+
+	// Message area
 	if m.Message != "" {
 		msgStyle := MessageStyle
 		if strings.HasPrefix(m.Message, "Error") {
 			msgStyle = ErrorStyle
 		}
-		return m.List.View() + "\n" + msgStyle.Render(m.Message) + help
+		b.WriteString("\n " + msgStyle.Render(m.Message))
 	}
 
-	return m.List.View() + help
+	// Key bar
+	b.WriteString("\n")
+	w := m.Width
+	if w == 0 {
+		w = 80
+	}
+	b.WriteString(renderKeyBar(w,
+		"a", "add", "e", "edit", "d", "delete",
+		"enter", "connect", "s", "sftp", "m", "menu", "q", "quit",
+	))
+
+	return b.String()
 }
+
+// ── Menu View ──────────────────────────────────────────────────────────
 
 // viewMenu renders the import/export menu.
 func (m Model) viewMenu() string {
-	s := TitleStyle.Render("Import/Export Menu") + "\n\n"
+	var b strings.Builder
 
+	b.WriteString(m.renderHeader())
+	b.WriteString(TitleStyle.Render("Import / Export") + "\n\n")
+
+	menuIcons := []string{"  ", "  ", "  "}
 	for i, option := range m.MenuOptions {
-		cursor := " "
 		if m.MenuCursor == i {
-			cursor = ">"
+			icon := MenuIconStyle.Render(menuIcons[i])
+			b.WriteString(MenuItemSelectedStyle.Render("> "+icon+option) + "\n")
+		} else {
+			icon := lipgloss.NewStyle().Foreground(ColorTextMuted).Render(menuIcons[i])
+			b.WriteString(MenuItemStyle.Render("  "+icon+option) + "\n")
 		}
-		s += fmt.Sprintf("%s %s\n", cursor, option)
 	}
-
-	s += "\n" + HelpStyle.Render("Use arrow keys to navigate, [enter] to select, [esc] to go back")
 
 	if m.Message != "" {
 		msgStyle := MessageStyle
 		if strings.HasPrefix(m.Message, "Error") || strings.HasPrefix(m.Message, "Import failed") || strings.HasPrefix(m.Message, "Export failed") {
 			msgStyle = ErrorStyle
 		}
-		s += "\n\n" + msgStyle.Render(m.Message)
+		b.WriteString("\n" + msgStyle.Render(" "+m.Message))
 	}
 
-	return s
+	b.WriteString("\n\n")
+	w := m.Width
+	if w == 0 {
+		w = 80
+	}
+	b.WriteString(renderKeyBar(w, "enter", "select", "esc", "back"))
+
+	return b.String()
 }
+
+// ── Form View ──────────────────────────────────────────────────────────
 
 // viewForm renders the add/edit server form.
 func (m Model) viewForm(title string) string {
 	var b strings.Builder
 
+	b.WriteString(m.renderHeader())
 	b.WriteString(TitleStyle.Render(title) + "\n\n")
 
+	labels := []string{"Name", "Host", "Port", "User", "Pass", "PEM", "SFTP"}
 	for i, input := range m.Inputs {
-		b.WriteString(input.View())
+		label := InputLabelStyle.Render(labels[i])
+		var field string
+		if i == m.FocusIndex {
+			field = InputActiveStyle.Render(input.View())
+		} else {
+			field = InputInactiveStyle.Render(input.View())
+		}
+		row := lipgloss.JoinHorizontal(lipgloss.Center, label, field)
+		b.WriteString(row)
 		if i == 5 && m.FocusIndex == 5 {
-			b.WriteString(HelpStyle.Render(" (Press 'p' for multiline editor)"))
+			b.WriteString(HelpStyle.Render("  press p for multiline editor"))
 		}
-		if i < len(m.Inputs)-1 {
-			b.WriteRune('\n')
-		}
+		b.WriteString("\n")
 	}
 
-	button := "[Submit]"
+	// Submit button
 	if m.FocusIndex == len(m.Inputs) {
-		button = "> [Submit] <"
+		b.WriteString("\n" + lipgloss.NewStyle().MarginLeft(9).Render(
+			SubmitButtonActiveStyle.Render("  Submit  "),
+		))
+	} else {
+		b.WriteString("\n" + lipgloss.NewStyle().MarginLeft(9).Render(
+			SubmitButtonInactiveStyle.Render("  Submit  "),
+		))
 	}
-	fmt.Fprintf(&b, "\n\n%s\n\n", button)
 
-	b.WriteString(HelpStyle.Render("Navigate: [tab]/[shift+tab]  Submit: [enter]  Cancel: [esc]"))
-
+	// Message
 	if m.Message != "" {
 		msgStyle := MessageStyle
 		if strings.HasPrefix(m.Message, "Error") {
 			msgStyle = ErrorStyle
 		}
-		b.WriteString("\n\n" + msgStyle.Render(m.Message))
+		b.WriteString("\n\n " + msgStyle.Render(m.Message))
 	}
+
+	b.WriteString("\n\n")
+	w := m.Width
+	if w == 0 {
+		w = 80
+	}
+	b.WriteString(renderKeyBar(w, "tab", "next", "shift+tab", "prev", "enter", "submit", "esc", "cancel"))
 
 	return b.String()
 }
+
+// ── PEM Editor View ────────────────────────────────────────────────────
 
 // viewPemEdit renders the PEM key multiline editor.
 func (m Model) viewPemEdit() string {
 	var b strings.Builder
 
-	b.WriteString(TitleStyle.Render("PEM Key Editor") + "\n\n")
-	b.WriteString(HelpStyle.Render("Paste your PEM private key below:") + "\n\n")
+	b.WriteString(m.renderHeader())
+	b.WriteString(TitleStyle.Render("PEM Key Editor") + "\n")
+	b.WriteString(SubtitleStyle.Render("Paste your PEM private key below") + "\n\n")
 
 	pemDisplay := m.PemBuffer
 	if pemDisplay == "" {
@@ -96,153 +172,207 @@ func (m Model) viewPemEdit() string {
 	}
 
 	lines := strings.Split(pemDisplay, "\n")
-	maxLen := 70
+	maxLen := 68
 
-	b.WriteString("+" + strings.Repeat("-", maxLen) + "+\n")
-	for _, line := range lines {
-		if len(line) > maxLen-2 {
-			line = line[:maxLen-2]
+	// Build the PEM content with line numbers
+	var pemContent strings.Builder
+	for i, line := range lines {
+		if len(line) > maxLen-6 {
+			line = line[:maxLen-6]
 		}
-		padding := maxLen - len(line)
-		b.WriteString("| " + line + strings.Repeat(" ", padding-1) + "|\n")
+		lineNum := PemLineNumStyle.Render(fmt.Sprintf("%d", i+1))
+		content := PemContentStyle.Render(line)
+		pemContent.WriteString(lineNum + " " + content + "\n")
 	}
-	for i := len(lines); i < 15; i++ {
-		b.WriteString("|" + strings.Repeat(" ", maxLen) + "|\n")
+	// Pad empty lines to minimum height
+	for i := len(lines); i < 12; i++ {
+		lineNum := PemLineNumStyle.Render(fmt.Sprintf("%d", i+1))
+		pemContent.WriteString(lineNum + "\n")
 	}
-	b.WriteString("+" + strings.Repeat("-", maxLen) + "+\n\n")
 
-	b.WriteString(HelpStyle.Render("Lines: "+strconv.Itoa(len(lines))) + "\n")
-	b.WriteString(HelpStyle.Render("Characters: "+strconv.Itoa(len(m.PemBuffer))) + "\n\n")
+	b.WriteString(PemBoxStyle.Render(pemContent.String()))
 
-	b.WriteString(MessageStyle.Render("[Ctrl+S] Save  [Esc] Cancel") + "\n")
+	// Stats
+	b.WriteString("\n")
+	stats := HelpStyle.Render(fmt.Sprintf("  Lines: %d  Characters: %d", len(lines), len(m.PemBuffer)))
+	b.WriteString(stats)
 
-	if m.Message != "" {
-		msgStyle := MessageStyle
-		if strings.HasPrefix(m.Message, "Error") {
-			msgStyle = ErrorStyle
-		}
-		b.WriteString("\n" + msgStyle.Render(m.Message))
+	b.WriteString("\n\n")
+	w := m.Width
+	if w == 0 {
+		w = 80
 	}
+	b.WriteString(renderKeyBar(w, "ctrl+s", "save", "esc", "cancel"))
 
 	return b.String()
 }
+
+// ── File Picker View ───────────────────────────────────────────────────
 
 // viewFilePicker renders the file picker view.
 func (m Model) viewFilePicker() string {
 	var b strings.Builder
-	b.WriteString(TitleStyle.Render(fmt.Sprintf("File Picker - %s", m.FilePickerMode)) + "\n\n")
-	b.WriteString(HelpStyle.Render("Path: ") + m.FilePickerPath + "\n\n")
+
+	b.WriteString(m.renderHeader())
+	title := "File Picker"
+	if m.FilePickerMode == "import" {
+		title = "Import File"
+	} else {
+		title = "Export Location"
+	}
+	b.WriteString(TitleStyle.Render(title) + "\n")
+	b.WriteString(InfoStyle.Render("  "+m.FilePickerPath) + "\n\n")
 
 	if m.FilePickerPrompt {
-		b.WriteString(m.FilePickerInput.View() + "\n\n")
-		b.WriteString(HelpStyle.Render("Type filename and press Enter to save, Esc to cancel"))
+		label := InputLabelStyle.Render("File")
+		field := InputActiveStyle.Render(m.FilePickerInput.View())
+		b.WriteString(lipgloss.JoinHorizontal(lipgloss.Center, label, field) + "\n\n")
+		w := m.Width
+		if w == 0 {
+			w = 80
+		}
+		b.WriteString(renderKeyBar(w, "enter", "save", "esc", "cancel"))
 		return b.String()
 	}
 
-	b.WriteString(m.FilePickerList.View() + "\n\n")
-	if m.FilePickerMode == "import" {
-		b.WriteString(HelpStyle.Render("Enter: open file / enter dir  Esc: cancel  .: toggle hidden"))
-	} else {
-		b.WriteString(HelpStyle.Render("Enter: choose file (overwrite)  x: export here  n: new filename  Esc: cancel  .: toggle hidden"))
-	}
+	b.WriteString(m.FilePickerList.View() + "\n")
 
 	if m.Message != "" {
 		msgStyle := MessageStyle
 		if strings.HasPrefix(m.Message, "Error") {
 			msgStyle = ErrorStyle
 		}
-		b.WriteString("\n\n" + msgStyle.Render(m.Message))
+		b.WriteString("\n " + msgStyle.Render(m.Message))
+	}
+
+	b.WriteString("\n")
+	w := m.Width
+	if w == 0 {
+		w = 80
+	}
+	if m.FilePickerMode == "import" {
+		b.WriteString(renderKeyBar(w, "enter", "open", ".", "toggle hidden", "esc", "cancel"))
+	} else {
+		b.WriteString(renderKeyBar(w, "enter", "overwrite", "x", "export here", "n", "new name", ".", "toggle hidden", "esc", "cancel"))
 	}
 
 	return b.String()
 }
 
+// ── SFTP View ──────────────────────────────────────────────────────────
+
 // viewSFTP renders the SFTP split-screen view.
 func (m Model) viewSFTP() string {
-	var b strings.Builder
 	server := m.SelectedServer
 	if server == nil {
 		return ""
 	}
 
-	b.WriteString(TitleStyle.Render(fmt.Sprintf("SFTP: %s@%s", server.Username, server.Host)) + "\n")
+	var b strings.Builder
 
+	// Header
+	b.WriteString(m.renderHeader())
+	connInfo := InfoStyle.Render(fmt.Sprintf("  Connected: %s@%s:%d", server.Username, server.Host, server.Port))
+	b.WriteString(connInfo + "\n")
+
+	// Transfer progress
 	if m.IsTransferring {
-		progressBar := fmt.Sprintf("[%d%%]", m.TransferProgress)
-		b.WriteString(MessageStyle.Render(progressBar) + " " + m.TransferMessage + "\n")
+		bar := TransferBarStyle.Render(fmt.Sprintf("  [%d%%] %s", m.TransferProgress, m.TransferMessage))
+		b.WriteString(bar + "\n")
 	}
 	b.WriteString("\n")
 
-	localHeader := "LOCAL"
-	remoteHeader := "REMOTE"
+	// Calculate pane width
+	totalWidth := m.Width
+	if totalWidth == 0 {
+		totalWidth = 80
+	}
+	paneWidth := (totalWidth - 5) / 2 // 5 = divider + margins
+	if paneWidth < MinPaneWidth {
+		paneWidth = MinPaneWidth
+	}
+
+	// Local pane
+	var localHeader, remoteHeader string
+	var localPanel, remotePanel lipgloss.Style
+
 	if m.FocusPane == "local" {
-		localHeader = "> " + localHeader + " <"
+		localHeader = SFTPHeaderStyle.Width(paneWidth - 4).Render("LOCAL")
+		remoteHeader = SFTPHeaderDimStyle.Width(paneWidth - 4).Render("REMOTE")
+		localPanel = PanelFocusedStyle.Width(paneWidth)
+		remotePanel = PanelDimStyle.Width(paneWidth)
 	} else {
-		remoteHeader = "> " + remoteHeader + " <"
+		localHeader = SFTPHeaderDimStyle.Width(paneWidth - 4).Render("LOCAL")
+		remoteHeader = SFTPHeaderStyle.Width(paneWidth - 4).Render("REMOTE")
+		localPanel = PanelDimStyle.Width(paneWidth)
+		remotePanel = PanelFocusedStyle.Width(paneWidth)
 	}
 
-	b.WriteString(HelpStyle.Render(localHeader) + "  " + HelpStyle.Render(remoteHeader) + "\n")
-	b.WriteString(HelpStyle.Render(m.LocalPath) + " | " + HelpStyle.Render(m.RemotePath) + "\n\n")
+	localPath := SFTPPathStyle.Width(paneWidth - 4).Render(truncatePath(m.LocalPath, paneWidth-6))
+	remotePath := SFTPPathStyle.Width(paneWidth - 4).Render(truncatePath(m.RemotePath, paneWidth-6))
 
-	localView := m.LocalFileList.View()
-	remoteView := m.RemoteFileList.View()
+	localContent := localHeader + "\n" + localPath + "\n\n" + m.LocalFileList.View()
+	remoteContent := remoteHeader + "\n" + remotePath + "\n\n" + m.RemoteFileList.View()
 
-	localLines := strings.Split(localView, "\n")
-	remoteLines := strings.Split(remoteView, "\n")
+	leftPane := localPanel.Render(localContent)
+	rightPane := remotePanel.Render(remoteContent)
 
-	maxLines := len(localLines)
-	if len(remoteLines) > maxLines {
-		maxLines = len(remoteLines)
-	}
+	divider := SFTPDividerStyle.Render(" ")
 
-	for i := 0; i < maxLines; i++ {
-		var localLine, remoteLine string
-		if i < len(localLines) {
-			localLine = localLines[i]
-		}
-		if i < len(remoteLines) {
-			remoteLine = remoteLines[i]
-		}
-		if len(localLine) < 40 {
-			localLine += strings.Repeat(" ", 40-len(localLine))
-		}
-		b.WriteString(localLine + " | " + remoteLine + "\n")
-	}
+	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, leftPane, divider, rightPane))
 
-	b.WriteString("\n" + HelpStyle.Render("Keys: [Tab] switch pane  [c]opy  [d]elete  [enter] navigate  [q]uit"))
-
+	// Message
 	if m.Message != "" {
 		msgStyle := MessageStyle
 		if strings.HasPrefix(m.Message, "Error") {
 			msgStyle = ErrorStyle
 		}
-		b.WriteString("\n" + msgStyle.Render(m.Message))
+		b.WriteString("\n " + msgStyle.Render(m.Message))
 	}
+
+	b.WriteString("\n")
+	b.WriteString(renderKeyBar(totalWidth,
+		"tab", "switch pane", "c", "copy", "d", "delete", "enter", "navigate", "q", "quit",
+	))
 
 	return b.String()
 }
 
-// viewConfirm renders the confirmation dialog.
+// ── Confirmation Dialog ────────────────────────────────────────────────
+
+// viewConfirm renders the confirmation dialog as a centered modal.
 func (m Model) viewConfirm() string {
-	var b strings.Builder
+	var content strings.Builder
 
-	b.WriteString("\n\n")
-	b.WriteString(TitleStyle.Render(m.ConfirmTitle) + "\n\n")
-	b.WriteString(HelpStyle.Render(m.ConfirmMessage) + "\n\n")
+	content.WriteString(ConfirmTitleStyle.Render("  "+m.ConfirmTitle) + "\n\n")
+	content.WriteString(ConfirmMessageStyle.Render(m.ConfirmMessage) + "\n\n")
 
-	noBtn := "  [ No ]  "
-	yesBtn := "  [ Yes ]  "
+	var noBtn, yesBtn string
 	if m.ConfirmCursor == 0 {
-		noBtn = "  > [ No ] <  "
+		noBtn = ButtonActiveStyle.Render("  No  ")
+		yesBtn = ButtonInactiveStyle.Render("  Yes  ")
 	} else {
-		yesBtn = "  > [ Yes ] <  "
+		noBtn = ButtonInactiveStyle.Render("  No  ")
+		yesBtn = ButtonDangerActiveStyle.Render("  Yes  ")
 	}
 
-	b.WriteString("    " + noBtn + "    " + yesBtn + "\n\n")
-	b.WriteString(HelpStyle.Render("Use arrow keys to select, [enter] to confirm, [esc] to cancel"))
+	buttons := lipgloss.JoinHorizontal(lipgloss.Center, noBtn, "   ", yesBtn)
+	content.WriteString(lipgloss.NewStyle().Align(lipgloss.Center).Width(46).Render(buttons))
+	content.WriteString("\n\n")
+	content.WriteString(HelpStyle.Render("arrow keys to select  enter to confirm  esc to cancel"))
 
-	return b.String()
+	modal := ModalStyle.Render(content.String())
+
+	// Center the modal on screen
+	if m.Width > 0 && m.Height > 0 {
+		return lipgloss.Place(m.Width, m.Height,
+			lipgloss.Center, lipgloss.Center,
+			modal)
+	}
+	return "\n\n" + modal
 }
+
+// ── Confirm View Update ────────────────────────────────────────────────
 
 // updateConfirmView handles key events in the confirmation dialog.
 func (m Model) updateConfirmView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -250,7 +380,10 @@ func (m Model) updateConfirmView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+c":
 		return m, tea.Quit
 	case "esc":
-		m.State = ListView
+		m.State = m.PreviousState
+		if m.State == ConfirmView || m.State == 0 {
+			m.State = ListView
+		}
 		return m, nil
 	case "left", "h":
 		m.ConfirmCursor = 0
@@ -260,8 +393,20 @@ func (m Model) updateConfirmView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.ConfirmCursor == 1 && m.ConfirmAction != nil {
 			m.ConfirmAction()
 		}
-		m.State = ListView
+		m.State = m.PreviousState
+		if m.State == ConfirmView || m.State == 0 {
+			m.State = ListView
+		}
 		return m, nil
 	}
 	return m, nil
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────
+
+func truncatePath(path string, maxLen int) string {
+	if len(path) <= maxLen {
+		return path
+	}
+	return "..." + path[len(path)-maxLen+3:]
 }

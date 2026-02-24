@@ -41,6 +41,10 @@ type Model struct {
 	MenuCursor  int
 	PemBuffer   string
 
+	// Terminal dimensions
+	Width  int
+	Height int
+
 	// File picker
 	FilePickerList       list.Model
 	FilePickerMode       string // "import" or "export"
@@ -66,6 +70,9 @@ type Model struct {
 	ConfirmMessage string
 	ConfirmAction  func()
 	ConfirmCursor  int // 0 = No, 1 = Yes
+
+	// Previous state (for returning from confirm)
+	PreviousState ViewState
 }
 
 // NewModel creates and returns a fully initialized Model.
@@ -78,10 +85,16 @@ func NewModel() Model {
 		items[i] = server
 	}
 
-	l := list.New(items, list.NewDefaultDelegate(), 0, 0)
-	l.Title = "SSH Connection Manager"
+	l := list.New(items, NewServerDelegate(), 0, 0)
+	l.Title = ""
+	l.SetShowTitle(false)
 	l.SetShowStatusBar(true)
 	l.SetFilteringEnabled(true)
+	l.SetShowHelp(false) // we render our own help bar
+	l.Styles.StatusBar = lipgloss.NewStyle().Foreground(ColorTextMuted).Padding(0, 1)
+	l.Styles.StatusBarActiveFilter = lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
+	l.Styles.StatusBarFilterCount = lipgloss.NewStyle().Foreground(ColorTextDim)
+	l.Styles.NoItems = lipgloss.NewStyle().Foreground(ColorTextMuted).Padding(1, 2)
 
 	return Model{
 		State:       ListView,
@@ -126,12 +139,14 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		m.Width = msg.Width
+		m.Height = msg.Height
 		h, v := lipgloss.NewStyle().GetFrameSize()
-		m.List.SetSize(msg.Width-h, msg.Height-v)
-		m.FilePickerList.SetSize(msg.Width-h, msg.Height-v)
-		halfWidth := (msg.Width - h - 2) / 2
-		m.LocalFileList.SetSize(halfWidth, msg.Height-v-8)
-		m.RemoteFileList.SetSize(halfWidth, msg.Height-v-8)
+		m.List.SetSize(msg.Width-h, msg.Height-v-4) // reserve space for header + footer
+		m.FilePickerList.SetSize(msg.Width-h, msg.Height-v-4)
+		halfWidth := (msg.Width - h - 6) / 2 // account for panel borders
+		m.LocalFileList.SetSize(halfWidth, msg.Height-v-10)
+		m.RemoteFileList.SetSize(halfWidth, msg.Height-v-10)
 		return m, nil
 
 	case tea.KeyMsg:
@@ -201,6 +216,7 @@ func (m *Model) ShowConfirm(title, message string, action func()) {
 	m.ConfirmMessage = message
 	m.ConfirmAction = action
 	m.ConfirmCursor = 0 // default to "No"
+	m.PreviousState = m.State
 	m.State = ConfirmView
 }
 

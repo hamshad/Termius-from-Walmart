@@ -28,13 +28,20 @@ func (d FileDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 		return
 	}
 	name := string(fi)
+	isDir := strings.HasSuffix(name, "/")
+	isSelected := index == m.Index()
 
-	fn := FileItemStyle.Render
-	if index == m.Index() {
-		fn = func(s ...string) string {
-			return FileSelectedStyle.Render("> " + strings.Join(s, " "))
-		}
+	var rendered string
+	switch {
+	case isDir && isSelected:
+		rendered = FileDirSelectedStyle.Render("> " + name)
+	case isDir:
+		rendered = FileDirStyle.Render("  " + name)
+	case isSelected:
+		rendered = FileSelectedStyle.Render("> " + name)
+	default:
+		rendered = FileItemStyle.Render("  " + name)
 	}
 
-	fmt.Fprint(w, fn(name))
+	fmt.Fprint(w, rendered)
 }
