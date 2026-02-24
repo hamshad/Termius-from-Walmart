@@ -1,0 +1,18 @@
+{
+  "project_name": "termius-from-walmart",
+  "milestone": {
+    "version": "v1.0",
+    "name": "Core SSH Client",
+    "slug": "core-ssh-client"
+  },
+  "workflow": {
+    "auto_advance": "false"
+  },
+  "models": {
+    "executor": "sonnet",
+    "verifier": "sonnet"
+  },
+  "branching_strategy": "none",
+  "commit_docs": true,
+  "parallelization": true
+}

@@ -29,12 +29,10 @@ go.work
 .DS_Store
 Thumbs.db
 
-# Config files (contains sensitive data)
-config.json
+# Runtime config (contains sensitive data - user's saved servers)
+# Only ignore the runtime config, not project config files
 *.json.backup
 
 # Build artifacts
 dist/
 build/
-
-*.md
