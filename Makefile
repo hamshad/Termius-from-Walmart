@@ -20,7 +20,7 @@ help: ## Show this help message
 
 build: ## Build the application
 	@echo "Building $(BINARY_NAME)..."
-	$(GOBUILD) -o $(BINARY_NAME) -v main.go
+	$(GOBUILD) -o $(BINARY_NAME) -v .
 	@echo "Build complete! Binary: ./$(BINARY_NAME)"
 
 install: build ## Build and install to /usr/local/bin
