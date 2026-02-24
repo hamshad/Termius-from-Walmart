@@ -27,8 +27,8 @@
 - [x] **TEST-02**: Unit tests for import/export (JSON parsing, edge cases)
 - [x] **TEST-03**: Unit tests for PEM key normalization
 - [x] **BUILD-01**: Makefile builds all .go files (not just main.go)
-- [ ] **UX-01**: Compelling, aesthetic TUI with themed color palette
-- [ ] **UX-02**: Responsive SFTP split-screen layout
+- [x] **UX-01**: Compelling, aesthetic TUI with themed color palette
+- [x] **UX-02**: Responsive SFTP split-screen layout
 - [ ] **UX-03**: Loading/connection state indicators
 - [ ] **SEC-01**: Encrypted credential storage with master password
 - [ ] **SEC-02**: Keychain integration (macOS Keychain / Linux secret-service)
@@ -59,8 +59,8 @@
 | TEST-02 | Phase 01 | Done |
 | TEST-03 | Phase 01 | Done |
 | BUILD-01 | Phase 01 | Done |
-| UX-01 | Phase 02 | Pending |
-| UX-02 | Phase 02 | Pending |
+| UX-01 | Phase 02 | Done |
+| UX-02 | Phase 02 | Done |
 | UX-03 | Phase 03 | Pending |
 | SEC-01 | Phase 04 | Pending |
 | SEC-02 | Phase 04 | Pending |
